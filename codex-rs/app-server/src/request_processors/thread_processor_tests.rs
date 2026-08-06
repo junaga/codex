@@ -107,6 +107,7 @@ mod thread_processor_behavior_tests {
     use super::super::*;
     use crate::outgoing_message::OutgoingEnvelope;
     use crate::outgoing_message::OutgoingMessage;
+    use crate::transport::ConnectionOrigin;
     use anyhow::Result;
     use chrono::DateTime;
     use chrono::Utc;
@@ -1517,6 +1518,86 @@ mod thread_processor_behavior_tests {
                 .first_attestation_capable_connection_for_thread(other_thread_id)
                 .await,
             Some(unrelated_supported_connection)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn remote_control_thread_start_includes_local_stdio_companions() -> Result<()> {
+        let manager = ThreadStateManager::new();
+        let thread_id = ThreadId::from_string("ad7f0408-99b8-4f6e-a46f-bd0eec433370")?;
+        let remote_control_connection = ConnectionId(1);
+        let stdio_connection = ConnectionId(2);
+        let websocket_connection = ConnectionId(3);
+
+        for (connection_id, origin) in [
+            (remote_control_connection, ConnectionOrigin::RemoteControl),
+            (stdio_connection, ConnectionOrigin::Stdio),
+            (websocket_connection, ConnectionOrigin::WebSocket),
+        ] {
+            manager
+                .connection_initialized_with_origin(
+                    connection_id,
+                    ConnectionCapabilities::default(),
+                    origin,
+                )
+                .await;
+        }
+
+        manager
+            .try_ensure_connection_subscribed(
+                thread_id,
+                remote_control_connection,
+                /*experimental_raw_events*/ false,
+            )
+            .await
+            .expect("remote-control connection should be live");
+        for connection_id in manager
+            .local_stdio_connection_ids_for_remote_control_thread_start(remote_control_connection)
+            .await
+        {
+            manager
+                .try_ensure_connection_subscribed(
+                    thread_id,
+                    connection_id,
+                    /*experimental_raw_events*/ false,
+                )
+                .await
+                .expect("local stdio companion should be live");
+        }
+
+        let mut subscribed_connection_ids = manager.subscribed_connection_ids(thread_id).await;
+        subscribed_connection_ids.sort_by_key(|connection_id| connection_id.0);
+        assert_eq!(
+            subscribed_connection_ids,
+            vec![remote_control_connection, stdio_connection]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn local_thread_start_does_not_include_other_stdio_connections() -> Result<()> {
+        let manager = ThreadStateManager::new();
+        let requesting_stdio_connection = ConnectionId(1);
+        let other_stdio_connection = ConnectionId(2);
+
+        for connection_id in [requesting_stdio_connection, other_stdio_connection] {
+            manager
+                .connection_initialized_with_origin(
+                    connection_id,
+                    ConnectionCapabilities::default(),
+                    ConnectionOrigin::Stdio,
+                )
+                .await;
+        }
+
+        assert!(
+            manager
+                .local_stdio_connection_ids_for_remote_control_thread_start(
+                    requesting_stdio_connection,
+                )
+                .await
+                .is_empty()
         );
         Ok(())
     }

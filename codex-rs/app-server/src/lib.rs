@@ -1022,6 +1022,7 @@ pub async fn run_main_with_transport_options(
                                         processor
                                             .process_request(
                                                 connection_id,
+                                                connection_state.origin,
                                                 request,
                                                 &transport,
                                                 Arc::clone(&connection_state.session),
@@ -1070,6 +1071,7 @@ pub async fn run_main_with_transport_options(
                                                     connection_state
                                                         .session
                                                         .request_attestation(),
+                                                    connection_state.origin,
                                                 )
                                                 .await;
                                             connection_state
